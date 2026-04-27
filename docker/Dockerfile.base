@@ -1,0 +1,27 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    SPARK_HOME=/opt/spark
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    openjdk-17-jre-headless \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://archive.apache.org/dist/spark/spark-3.5.1/spark-3.5.1-bin-hadoop3.tgz \
+    | tar -xz -C /opt \
+    && ln -s /opt/spark-3.5.1-bin-hadoop3 "${SPARK_HOME}"
+
+WORKDIR /app
+
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+COPY scripts /app/scripts
+COPY configs /app/configs
+
+RUN pip install --no-cache-dir -e ".[stream,dev]"
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+

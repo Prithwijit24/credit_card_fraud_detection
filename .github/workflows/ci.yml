@@ -1,0 +1,38 @@
+name: ci
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,stream]"
+      - name: Lint
+        run: ruff check .
+      - name: Type-check
+        run: mypy src
+      - name: Unit and integration tests
+        run: pytest
+
+  container-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build trainer image
+        run: docker build -f docker/Dockerfile.trainer -t fraud-trainer:ci .
+      - name: Build streaming image
+        run: docker build -f docker/Dockerfile.streaming -t fraud-streaming:ci .

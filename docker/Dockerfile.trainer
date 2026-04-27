@@ -1,0 +1,14 @@
+FROM apache/spark-py:v3.5.1
+
+USER root
+WORKDIR /app
+
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+COPY scripts /app/scripts
+COPY configs /app/configs
+
+RUN pip install --no-cache-dir -e .
+
+CMD ["python", "scripts/train_model.py", "--config", "configs/base.yaml"]
+

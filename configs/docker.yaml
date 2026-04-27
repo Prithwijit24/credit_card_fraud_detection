@@ -1,0 +1,39 @@
+app:
+  name: credit-card-fraud-detection
+  environment: docker
+
+data:
+  training_path: /data/fraudTrain.csv
+  test_path: /data/fraudTest.csv
+  model_dir: models/trained/latest
+  metrics_dir: data/metrics
+  landing_dir: data/landing
+  scored_dir: data/scored
+  alerts_dir: data/alerts
+  checkpoint_dir: checkpoints/streaming
+
+spark:
+  app_name_train: fraud-trainer
+  app_name_stream: fraud-streaming
+  master: spark://spark-master:7077
+  shuffle_partitions: 8
+
+streaming:
+  source: kafka
+  kafka_bootstrap_servers: kafka:9092
+  kafka_topic: card-transactions
+  starting_offsets: latest
+  max_offsets_per_trigger: 5000
+  trigger_interval: 15 seconds
+  watermark_delay: 2 minutes
+  output_mode: append
+  fraud_probability_threshold: 0.82
+  monitor_window: 5 minutes
+  monitor_slide: 1 minute
+
+model:
+  seed: 42
+  train_ratio: 0.8
+  max_bins: 64
+  max_depth: 8
+  num_trees: 120
