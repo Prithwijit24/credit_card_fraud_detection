@@ -10,13 +10,10 @@ data:
   landing_dir: data/landing
   scored_dir: data/scored
   alerts_dir: data/alerts
-  checkpoint_dir: checkpoints/streaming
 
-spark:
-  app_name_train: fraud-trainer
-  app_name_stream: fraud-streaming
-  master: local[*]
-  shuffle_partitions: 4
+runtime:
+  training_job_name: fraud-trainer
+  scoring_job_name: fraud-microbatch-scorer
 
 streaming:
   source: kafka
@@ -37,4 +34,3 @@ model:
   max_bins: 64
   max_depth: 8
   num_trees: 120
-

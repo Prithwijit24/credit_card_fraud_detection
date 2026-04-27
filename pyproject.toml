@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "credit-card-fraud-detection"
 version = "0.1.0"
-description = "Production-ready credit card fraud detection pipeline built with PySpark Structured Streaming."
+description = "Production-ready credit card fraud detection pipeline built with Pandas and scikit-learn."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
@@ -13,9 +13,14 @@ authors = [
   { name = "Prithwijit" }
 ]
 dependencies = [
+  "ipykernel>=7.2.0",
+  "joblib>=1.3.0,<2.0.0",
+  "matplotlib>=3.10.9",
   "numpy>=1.26.0,<3.0.0",
+  "pandas>=2.1.0,<3.0.0",
   "PyYAML>=6.0.1,<7.0.0",
-  "pyspark>=3.5.1,<3.6.0",
+  "scikit-learn>=1.3.0,<2.0.0",
+  "seaborn>=0.13.2",
 ]
 
 [project.optional-dependencies]

@@ -2,39 +2,54 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
-from pyspark.ml.evaluation import BinaryClassificationEvaluator, MulticlassClassificationEvaluator
-from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
-
-
-def compute_class_weights(df: DataFrame) -> DataFrame:
-    counts = {row["is_fraud"]: row["count"] for row in df.groupBy("is_fraud").count().collect()}
-    majority = max(counts.values())
-    fraud_weight = float(majority / counts.get(1, majority))
-    return df.withColumn(
-        "class_weight",
-        F.when(F.col("is_fraud") == 1, fraud_weight).otherwise(1.0),
-    )
+import pandas as pd
+from sklearn.metrics import (
+    average_precision_score,
+    confusion_matrix,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 
 
-def collect_metrics(predictions: DataFrame) -> dict[str, float]:
-    auc = BinaryClassificationEvaluator(
-        labelCol="is_fraud",
-        rawPredictionCol="rawPrediction",
-        metricName="areaUnderROC",
-    ).evaluate(predictions)
-    pr_auc = BinaryClassificationEvaluator(
-        labelCol="is_fraud",
-        rawPredictionCol="rawPrediction",
-        metricName="areaUnderPR",
-    ).evaluate(predictions)
-    f1 = MulticlassClassificationEvaluator(
-        labelCol="is_fraud",
-        predictionCol="prediction",
-        metricName="f1",
-    ).evaluate(predictions)
-    return {"auc_roc": auc, "auc_pr": pr_auc, "f1": f1}
+def compute_class_weights(df: pd.DataFrame) -> pd.DataFrame:
+    weighted = df.copy()
+    counts = weighted["is_fraud"].value_counts(dropna=False)
+    majority = counts.max()
+    fraud_count = counts.get(1, majority)
+    fraud_weight = float(majority / fraud_count) if fraud_count else 1.0
+    weighted["class_weight"] = weighted["is_fraud"].map({1: fraud_weight}).fillna(1.0)
+    return weighted
+
+
+def score_frame(model: Any, features: pd.DataFrame, threshold: float) -> pd.DataFrame:
+    scored = features.copy()
+    probabilities = model.predict_proba(features)[:, 1]
+    scored["fraud_probability"] = probabilities
+    scored["prediction"] = (probabilities >= threshold).astype(int)
+    return scored
+
+
+def collect_metrics(predictions: pd.DataFrame) -> dict[str, float]:
+    y_true = predictions["is_fraud"].astype(int)
+    y_score = predictions["fraud_probability"].astype(float)
+    y_pred = predictions["prediction"].astype(int)
+    has_two_classes = y_true.nunique() == 2
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    return {
+        "auc_roc": float(roc_auc_score(y_true, y_score)) if has_two_classes else 0.0,
+        "auc_pr": float(average_precision_score(y_true, y_score)) if has_two_classes else 0.0,
+        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+        "true_positives": float(tp),
+        "false_positives": float(fp),
+        "true_negatives": float(tn),
+        "false_negatives": float(fn),
+    }
 
 
 def write_metrics(metrics: dict[str, float], destination: Path) -> None:

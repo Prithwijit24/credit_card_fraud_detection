@@ -3,16 +3,20 @@ from __future__ import annotations
 import argparse
 import logging
 
-from pyspark.sql import functions as F
+from sklearn.model_selection import train_test_split
 
 from fraud_detection.config import load_config
-from fraud_detection.features import add_derived_features, sanitize_input_columns
+from fraud_detection.features import FEATURE_COLUMNS, add_derived_features, sanitize_input_columns
 from fraud_detection.logger import configure_logging
-from fraud_detection.pipeline.metrics import collect_metrics, compute_class_weights, write_metrics
-from fraud_detection.pipeline.modeling import build_cv_pipeline
+from fraud_detection.pipeline.metrics import (
+    collect_metrics,
+    compute_class_weights,
+    score_frame,
+    write_metrics,
+)
+from fraud_detection.pipeline.modeling import build_cv_pipeline, save_model
 from fraud_detection.pipeline.validation import validate_transactions
-from fraud_detection.schemas import TRANSACTION_SCHEMA
-from fraud_detection.spark import build_spark_session
+from fraud_detection.schemas import read_transactions_csv
 
 LOGGER = logging.getLogger(__name__)
 
@@ -27,51 +31,54 @@ def main() -> None:
     configure_logging()
     args = parse_args()
     config = load_config(args.config)
-    spark = build_spark_session(config, config.spark["app_name_train"])
 
     training_path = str(config.resolve_path(config.data["training_path"]))
     model_dir = config.resolve_path(config.data["model_dir"])
     metrics_dir = config.resolve_path(config.data["metrics_dir"])
+    threshold = float(config.streaming["fraud_probability_threshold"])
 
     LOGGER.info("Reading training data from %s", training_path)
-    raw_df = (
-        spark.read.option("header", True)
-        .schema(TRANSACTION_SCHEMA)
-        .csv(training_path)
-    )
+    raw_df = read_transactions_csv(training_path)
     feature_df = add_derived_features(validate_transactions(sanitize_input_columns(raw_df)))
-    feature_df = compute_class_weights(feature_df).withColumn(
-        "is_fraud", F.col("is_fraud").cast("double")
+    feature_df["is_fraud"] = feature_df["is_fraud"].astype(int)
+    feature_df = compute_class_weights(feature_df)
+
+    stratify = feature_df["is_fraud"] if feature_df["is_fraud"].nunique() == 2 else None
+    train_df, test_df = train_test_split(
+        feature_df,
+        train_size=float(config.model["train_ratio"]),
+        random_state=int(config.model["seed"]),
+        stratify=stratify,
     )
 
-    train_df, test_df = feature_df.randomSplit(
-        [config.model["train_ratio"], 1 - config.model["train_ratio"]],
-        seed=config.model["seed"],
-    )
     cv_pipeline = build_cv_pipeline(
-        seed=config.model["seed"],
-        max_bins=config.model["max_bins"],
-        max_depths=[max(2, config.model["max_depth"] - 2), config.model["max_depth"]],
-        num_trees_list=[config.model["num_trees"], config.model["num_trees"] + 20],
+        seed=int(config.model["seed"]),
+        max_bins=int(config.model.get("max_bins", 0)),
+        max_depths=[max(2, int(config.model["max_depth"]) - 2), int(config.model["max_depth"])],
+        num_trees_list=[int(config.model["num_trees"]), int(config.model["num_trees"]) + 20],
     )
-    cv_model = cv_pipeline.fit(train_df)
-    model = cv_model.bestModel
-    predictions = model.transform(test_df).cache()
+    cv_pipeline.fit(
+        train_df[FEATURE_COLUMNS],
+        train_df["is_fraud"],
+        classifier__sample_weight=train_df["class_weight"],
+    )
+    model = cv_pipeline.best_estimator_
+    predictions = score_frame(model, test_df, threshold=threshold)
     metrics = collect_metrics(predictions)
+    metrics["best_cv_auc_pr"] = float(cv_pipeline.best_score_)
 
     LOGGER.info("Model metrics: %s", metrics)
-    if metrics["auc_roc"] < 0.85:
-        LOGGER.error("Model did not pass quality gate (AUC-ROC %.3f < 0.85). Aborting save.", metrics["auc_roc"])
-        spark.stop()
+    if metrics["auc_pr"] < 0.20 or metrics["recall"] < 0.65:
+        LOGGER.error(
+            "Model did not pass quality gate (PR-AUC %.3f, recall %.3f). Aborting save.",
+            metrics["auc_pr"],
+            metrics["recall"],
+        )
         return
 
-    model_dir.parent.mkdir(parents=True, exist_ok=True)
-    if model_dir.exists():
-        LOGGER.info("Overwriting existing model at %s", model_dir)
-    model.write().overwrite().save(str(model_dir))
+    artifact_path = save_model(model, model_dir)
     write_metrics(metrics, metrics_dir / "latest_metrics.json")
-
-    spark.stop()
+    LOGGER.info("Saved model artifact to %s", artifact_path)
 
 
 if __name__ == "__main__":

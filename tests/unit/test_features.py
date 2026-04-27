@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pandas as pd
+
 from fraud_detection.features import add_derived_features
 
 
-def test_add_derived_features(spark) -> None:
+def test_add_derived_features() -> None:
     rows = [
         {
             "row_id": 1,
@@ -31,11 +33,9 @@ def test_add_derived_features(spark) -> None:
             "is_fraud": 0,
         }
     ]
-    df = spark.createDataFrame(rows)
-    transformed = add_derived_features(df).collect()[0]
+    transformed = add_derived_features(pd.DataFrame(rows)).iloc[0]
 
-    assert transformed["txn_hour"] == 23
-    assert transformed["is_night_txn"] == 1
+    assert int(transformed["txn_hour"]) == 23
+    assert int(transformed["is_night_txn"]) == 1
     assert transformed["distance_km"] > 0
     assert transformed["age_years"] >= 28
-

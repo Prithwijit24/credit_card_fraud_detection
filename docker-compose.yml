@@ -21,46 +21,10 @@ services:
       KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
       ALLOW_PLAINTEXT_LISTENER: "yes"
 
-  namenode:
-    image: apache/hadoop:3
-    hostname: namenode
-    command: ["hdfs", "namenode"]
-    environment:
-      ENSURE_NAMENODE_DIR: "/tmp/hadoop-root/dfs/name"
-    ports:
-      - "9870:9870"
-      - "9000:9000"
-
-  datanode:
-    image: apache/hadoop:3
-    depends_on:
-      - namenode
-    command: ["hdfs", "datanode"]
-
-  spark-master:
-    image: bitnami/spark:3.5
-    environment:
-      SPARK_MODE: master
-    ports:
-      - "7077:7077"
-      - "8080:8080"
-
-  spark-worker:
-    image: bitnami/spark:3.5
-    depends_on:
-      - spark-master
-    environment:
-      SPARK_MODE: worker
-      SPARK_MASTER_URL: spark://spark-master:7077
-      SPARK_WORKER_MEMORY: 2G
-      SPARK_WORKER_CORES: 2
-
   trainer:
     build:
       context: .
       dockerfile: docker/Dockerfile.trainer
-    depends_on:
-      - spark-master
     volumes:
       - ./configs:/app/configs
       - ../data:/data:ro
@@ -75,13 +39,11 @@ services:
       dockerfile: docker/Dockerfile.streaming
     depends_on:
       - kafka
-      - spark-master
       - trainer
     volumes:
       - ./configs:/app/configs
       - ./models:/app/models
       - ./data:/app/data
-      - ./checkpoints:/app/checkpoints
     command: >
       python scripts/run_streaming_job.py --config configs/docker.yaml
 

@@ -21,8 +21,8 @@ class AppConfig:
         return cast(dict[str, Any], self.raw["data"])
 
     @property
-    def spark(self) -> dict[str, Any]:
-        return cast(dict[str, Any], self.raw["spark"])
+    def runtime(self) -> dict[str, Any]:
+        return cast(dict[str, Any], self.raw.get("runtime", {}))
 
     @property
     def streaming(self) -> dict[str, Any]:

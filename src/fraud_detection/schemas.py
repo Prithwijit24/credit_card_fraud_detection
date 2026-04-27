@@ -1,32 +1,80 @@
 from __future__ import annotations
 
-from pyspark.sql.types import DoubleType, LongType, StringType, StructField, StructType
+from collections.abc import Mapping, Sequence
+from typing import Any
 
-TRANSACTION_SCHEMA = StructType(
-    [
-        StructField("row_id", LongType(), True),
-        StructField("trans_date_trans_time", StringType(), True),
-        StructField("cc_num", StringType(), True),
-        StructField("merchant", StringType(), True),
-        StructField("category", StringType(), True),
-        StructField("amt", DoubleType(), True),
-        StructField("first", StringType(), True),
-        StructField("last", StringType(), True),
-        StructField("gender", StringType(), True),
-        StructField("street", StringType(), True),
-        StructField("city", StringType(), True),
-        StructField("state", StringType(), True),
-        StructField("zip", StringType(), True),
-        StructField("lat", DoubleType(), True),
-        StructField("long", DoubleType(), True),
-        StructField("city_pop", LongType(), True),
-        StructField("job", StringType(), True),
-        StructField("dob", StringType(), True),
-        StructField("trans_num", StringType(), True),
-        StructField("unix_time", LongType(), True),
-        StructField("merch_lat", DoubleType(), True),
-        StructField("merch_long", DoubleType(), True),
-        StructField("is_fraud", LongType(), True),
-    ]
-)
+import pandas as pd
 
+TRANSACTION_COLUMNS = [
+    "row_id",
+    "trans_date_trans_time",
+    "cc_num",
+    "merchant",
+    "category",
+    "amt",
+    "first",
+    "last",
+    "gender",
+    "street",
+    "city",
+    "state",
+    "zip",
+    "lat",
+    "long",
+    "city_pop",
+    "job",
+    "dob",
+    "trans_num",
+    "unix_time",
+    "merch_lat",
+    "merch_long",
+    "is_fraud",
+]
+
+STRING_COLUMNS = [
+    "trans_date_trans_time",
+    "cc_num",
+    "merchant",
+    "category",
+    "first",
+    "last",
+    "gender",
+    "street",
+    "city",
+    "state",
+    "zip",
+    "job",
+    "dob",
+    "trans_num",
+]
+NUMERIC_COLUMNS = [
+    "row_id",
+    "amt",
+    "lat",
+    "long",
+    "city_pop",
+    "unix_time",
+    "merch_lat",
+    "merch_long",
+    "is_fraud",
+]
+
+
+def coerce_transaction_schema(df: pd.DataFrame) -> pd.DataFrame:
+    coerced = df.copy()
+    for column in TRANSACTION_COLUMNS:
+        if column not in coerced:
+            coerced[column] = pd.NA
+    for column in STRING_COLUMNS:
+        coerced[column] = coerced[column].astype("string")
+    for column in NUMERIC_COLUMNS:
+        coerced[column] = pd.to_numeric(coerced[column], errors="coerce")
+    return coerced[TRANSACTION_COLUMNS]
+
+
+def frame_from_records(records: Sequence[Mapping[str, Any]]) -> pd.DataFrame:
+    return coerce_transaction_schema(pd.DataFrame.from_records(records))
+
+
+def read_transactions_csv(path: str) -> pd.DataFrame:
+    return coerce_transaction_schema(pd.read_csv(path))

@@ -1,72 +1,74 @@
-# ⚡ Quickstart Guide
+# Quickstart Guide
 
-Get the pipeline up and running in minutes. Follow these **3 main phases**.
+This project now runs on Pandas and scikit-learn. No distributed compute services are
+required.
 
----
+## 1. Install
 
-## 🏗️ Phase 1: Environment Setup
-
-### 1. Python Virtual Environment
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
-pip install -e ".[dev,stream]"
+pip install -e ".[dev,stream,api]"
 ```
 
-> [!NOTE]
-> **Host Requirements**: If you run Spark directly on your machine, ensure **Java 17+** is installed.
+## 2. Train
 
----
+Training reads `configs/base.yaml`, loads the historical CSV, builds Pandas features, tunes the
+sklearn pipeline on PR-AUC, and saves only if the quality gate passes.
 
-## 🧠 Phase 2: Model Training
-
-### 2. Run the Trainer
 ```bash
 python scripts/train_model.py --config configs/base.yaml
 ```
 
-**✅ Expected Outputs:**
-- `models/trained/latest/` (The serialized ML pipeline)
-- `data/metrics/latest_metrics.json` (Performance report)
+Expected outputs:
 
----
+- `models/trained/latest/model.joblib`
+- `data/metrics/latest_metrics.json`
 
-## 🌊 Phase 3: Live Streaming
+## 3. Score Streaming Events
 
-### 3. Start Infrastructure
+Start Kafka:
+
 ```bash
-docker compose up -d zookeeper kafka namenode datanode spark-master spark-worker
+docker compose up -d zookeeper kafka
 ```
 
-### 4. Start the Scorer
+Start the Pandas micro-batch scorer:
+
 ```bash
 python scripts/run_streaming_job.py --config configs/base.yaml
 ```
 
-### 5. Simulate Traffic
-In a separate terminal, push sample events to Kafka:
+In another terminal, publish sample transactions:
+
 ```bash
 python scripts/produce_events.py --config configs/base.yaml --records 1000 --delay-seconds 0.02
 ```
 
----
+Inspect:
 
-## 🕵️ Phase 4: Verification
+- `data/scored/`
+- `data/alerts/`
 
-### Inspect the Results
-- 🏁 **Scored Events**: `data/scored/`
-- 🚨 **Fraud Alerts**: `data/alerts/`
+## 4. Score With the API
 
-### Run Quality Checks
 ```bash
-pytest          # Logic tests
-ruff check .    # Linting
-mypy src        # Type checking
+python -m fraud_detection.jobs.api --config configs/base.yaml --host 127.0.0.1 --port 8000
 ```
 
----
+Then post one transaction to `http://127.0.0.1:8000/score`.
 
-> [!TIP]
-> **One-Command Wonder**: Want to run everything in a containerized sandbox? 
-> Just run `docker compose up --build`.
+## 5. Run Checks
+
+```bash
+pytest
+ruff check .
+mypy src
+```
+
+## 6. Docker Demo
+
+```bash
+docker compose up --build
+```

@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from pyspark.sql import Row
+import pandas as pd
 
 from fraud_detection.pipeline.validation import validate_transactions
 
 
-def test_validate_transactions_drops_invalid(spark):
+def test_validate_transactions_drops_invalid():
     data = [
-        Row(amt=100.0, cc_num="123", merchant="abc", trans_date_trans_time="2020-01-01"),  # valid
-        Row(amt=-10.0, cc_num="123", merchant="abc", trans_date_trans_time="2020-01-01"),  # invalid amt
-        Row(amt=100.0, cc_num=None, merchant="abc", trans_date_trans_time="2020-01-01"),  # invalid cc_num
-        Row(amt=100.0, cc_num="123", merchant=None, trans_date_trans_time="2020-01-01"),  # invalid merchant
-        Row(amt=100.0, cc_num="123", merchant="abc", trans_date_trans_time=None),         # invalid date
+        {"amt": 100.0, "cc_num": "123", "merchant": "abc", "trans_date_trans_time": "2020-01-01"},
+        {"amt": -10.0, "cc_num": "123", "merchant": "abc", "trans_date_trans_time": "2020-01-01"},
+        {"amt": 100.0, "cc_num": None, "merchant": "abc", "trans_date_trans_time": "2020-01-01"},
+        {"amt": 100.0, "cc_num": "123", "merchant": None, "trans_date_trans_time": "2020-01-01"},
+        {"amt": 100.0, "cc_num": "123", "merchant": "abc", "trans_date_trans_time": None},
     ]
-    df = spark.createDataFrame(data)
-    valid_df = validate_transactions(df)
-    assert valid_df.count() == 1
-    assert valid_df.collect()[0].amt == 100.0
+    valid_df = validate_transactions(pd.DataFrame(data))
+    assert len(valid_df) == 1
+    assert valid_df.iloc[0].amt == 100.0

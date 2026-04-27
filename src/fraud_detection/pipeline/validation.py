@@ -2,34 +2,38 @@ from __future__ import annotations
 
 import logging
 
-from pyspark.sql import DataFrame
-from pyspark.sql import functions as F
+import pandas as pd
 
 LOGGER = logging.getLogger(__name__)
 
 
-def validate_transactions(df: DataFrame) -> DataFrame:
+def validate_transactions(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies data quality checks to the transaction DataFrame.
+    Applies data quality checks to the transaction frame.
     Drops records that violate core assumptions.
     """
-    initial_count = df.count()
-    
-    # 1. Transaction amount must be positive
-    # 2. Critical fields must not be null
-    valid_df = df.filter(
-        (F.col("amt") > 0)
-        & F.col("cc_num").isNotNull()
-        & F.col("merchant").isNotNull()
-        & F.col("trans_date_trans_time").isNotNull()
+    initial_count = len(df)
+    amount = pd.to_numeric(df["amt"], errors="coerce") if "amt" in df else pd.Series(index=df.index)
+    timestamp = (
+        pd.to_datetime(df["trans_date_trans_time"], errors="coerce")
+        if "trans_date_trans_time" in df
+        else pd.Series(index=df.index)
     )
-    
-    final_count = valid_df.count()
+
+    required_present = (
+        df.get("cc_num", pd.Series(index=df.index)).notna()
+        & df.get("merchant", pd.Series(index=df.index)).notna()
+        & timestamp.notna()
+    )
+    valid_mask = (amount > 0) & required_present
+    valid_df = df.loc[valid_mask].copy()
+
+    final_count = len(valid_df)
     dropped_count = initial_count - final_count
-    
+
     if dropped_count > 0:
         LOGGER.warning("Data validation dropped %s malformed records.", dropped_count)
     else:
         LOGGER.info("Data validation passed. No records dropped.")
-        
+
     return valid_df

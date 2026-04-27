@@ -1,6 +1,7 @@
-FROM apache/spark-py:v3.5.1
+FROM python:3.11-slim
 
-USER root
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
 WORKDIR /app
 
 COPY pyproject.toml README.md /app/
@@ -11,4 +12,3 @@ COPY configs /app/configs
 RUN pip install --no-cache-dir -e ".[stream]"
 
 CMD ["python", "scripts/run_streaming_job.py", "--config", "configs/base.yaml"]
-

@@ -1,127 +1,144 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
+import time
+from collections.abc import Iterable
+from pathlib import Path
 
-from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql import functions as F
-from pyspark.sql.streaming import StreamingQuery
+import pandas as pd
 
 from fraud_detection.config import AppConfig, load_config
-from fraud_detection.features import add_derived_features, sanitize_input_columns
-from fraud_detection.pipeline.validation import validate_transactions
+from fraud_detection.features import FEATURE_COLUMNS, add_derived_features, sanitize_input_columns
 from fraud_detection.logger import configure_logging
+from fraud_detection.pipeline.metrics import score_frame
 from fraud_detection.pipeline.modeling import load_model
-from fraud_detection.schemas import TRANSACTION_SCHEMA
-from fraud_detection.spark import build_spark_session
+from fraud_detection.pipeline.validation import validate_transactions
+from fraud_detection.schemas import coerce_transaction_schema, frame_from_records
 
 LOGGER = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Run streaming fraud scoring.")
+    parser = argparse.ArgumentParser(description="Run micro-batch fraud scoring.")
     parser.add_argument("--config", required=True, help="Path to the YAML config file.")
     return parser.parse_args()
 
 
-def build_source_stream(config: AppConfig, spark_session: SparkSession) -> DataFrame:
-    source = config.streaming["source"]
-    if source == "kafka":
-        return (
-            spark_session.readStream.format("kafka")
-            .option("kafka.bootstrap.servers", config.streaming["kafka_bootstrap_servers"])
-            .option("subscribe", config.streaming["kafka_topic"])
-            .option("startingOffsets", config.streaming["starting_offsets"])
-            .option("maxOffsetsPerTrigger", config.streaming["max_offsets_per_trigger"])
-            .load()
-            .selectExpr("CAST(value AS STRING) AS payload")
-            .select(F.from_json("payload", TRANSACTION_SCHEMA).alias("data"))
-            .select("data.*")
-        )
+def _parse_interval_seconds(value: str) -> float:
+    parts = value.strip().split()
+    if not parts:
+        return 15.0
+    number = float(parts[0])
+    unit = parts[1].lower() if len(parts) > 1 else "seconds"
+    if unit.startswith("minute"):
+        return number * 60
+    if unit.startswith("hour"):
+        return number * 3600
+    return number
 
-    landing_dir = str(config.resolve_path(config.data["landing_dir"]))
-    return (
-        spark_session.readStream.schema(TRANSACTION_SCHEMA)
-        .option("header", True)
-        .csv(landing_dir)
+
+def _iter_kafka_batches(config: AppConfig) -> Iterable[pd.DataFrame]:
+    try:
+        from kafka import KafkaConsumer
+    except ImportError as exc:
+        message = "Install the stream dependencies with `pip install -e .[stream]`."
+        raise SystemExit(message) from exc
+
+    interval_seconds = _parse_interval_seconds(config.streaming["trigger_interval"])
+    consumer = KafkaConsumer(
+        config.streaming["kafka_topic"],
+        bootstrap_servers=config.streaming["kafka_bootstrap_servers"],
+        auto_offset_reset=config.streaming["starting_offsets"],
+        enable_auto_commit=True,
+        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
+        consumer_timeout_ms=int(interval_seconds * 1000),
     )
+    batch_size = int(config.streaming["max_offsets_per_trigger"])
+    while True:
+        records = []
+        for message in consumer:
+            records.append(message.value)
+            if len(records) >= batch_size:
+                break
+        if records:
+            yield frame_from_records(records)
+        else:
+            time.sleep(_parse_interval_seconds(config.streaming["trigger_interval"]))
 
 
-def write_outputs(scored_df: DataFrame, config: AppConfig) -> list[StreamingQuery]:
+def _iter_csv_batches(config: AppConfig) -> Iterable[pd.DataFrame]:
+    landing_dir = config.resolve_path(config.data["landing_dir"])
+    landing_dir.mkdir(parents=True, exist_ok=True)
+    seen: set[Path] = set()
+    interval_seconds = _parse_interval_seconds(config.streaming["trigger_interval"])
+    while True:
+        batch_files = sorted(landing_dir.glob("*.csv"))
+        unseen = [path for path in batch_files if path not in seen]
+        if unseen:
+            frames = [coerce_transaction_schema(pd.read_csv(path)) for path in unseen]
+            seen.update(unseen)
+            yield pd.concat(frames, ignore_index=True)
+        else:
+            time.sleep(interval_seconds)
+
+
+def build_source_batches(config: AppConfig) -> Iterable[pd.DataFrame]:
+    if config.streaming["source"] == "kafka":
+        return _iter_kafka_batches(config)
+    return _iter_csv_batches(config)
+
+
+def write_outputs(scored_df: pd.DataFrame, config: AppConfig) -> None:
     threshold = float(config.streaming["fraud_probability_threshold"])
-    checkpoint_root = config.resolve_path(config.data["checkpoint_dir"])
-    scored_dir = str(config.resolve_path(config.data["scored_dir"]))
-    alerts_dir = str(config.resolve_path(config.data["alerts_dir"]))
+    scored_dir = config.resolve_path(config.data["scored_dir"])
+    alerts_dir = config.resolve_path(config.data["alerts_dir"])
+    scored_dir.mkdir(parents=True, exist_ok=True)
+    alerts_dir.mkdir(parents=True, exist_ok=True)
 
-    enriched = scored_df.withColumn("fraud_probability", F.col("probability")[1]).withColumn(
-        "risk_band",
-        F.when(F.col("probability")[1] >= threshold, F.lit("critical"))
-        .when(F.col("probability")[1] >= 0.5, F.lit("elevated"))
-        .otherwise(F.lit("normal")),
+    enriched = scored_df.copy()
+    enriched["risk_band"] = "normal"
+    enriched.loc[enriched["fraud_probability"] >= 0.5, "risk_band"] = "elevated"
+    enriched.loc[enriched["fraud_probability"] >= threshold, "risk_band"] = "critical"
+
+    batch_id = int(time.time() * 1000)
+    enriched.to_json(scored_dir / f"scored-{batch_id}.jsonl", orient="records", lines=True)
+    alerts = enriched.loc[enriched["fraud_probability"] >= threshold]
+    if not alerts.empty:
+        alerts.to_json(alerts_dir / f"alerts-{batch_id}.jsonl", orient="records", lines=True)
+
+    monitor = (
+        enriched.groupby(["state", "risk_band"], dropna=False)["fraud_probability"]
+        .agg(txn_count="size", avg_fraud_probability="mean")
+        .reset_index()
     )
-
-    scored_query = (
-        enriched.writeStream.outputMode(config.streaming["output_mode"])
-        .format("parquet")
-        .option("path", scored_dir)
-        .option("checkpointLocation", str(checkpoint_root / "scored"))
-        .trigger(processingTime=config.streaming["trigger_interval"])
-        .start()
-    )
-
-    alerts_query = (
-        enriched.filter(F.col("fraud_probability") >= threshold)
-        .writeStream.outputMode(config.streaming["output_mode"])
-        .format("json")
-        .option("path", alerts_dir)
-        .option("checkpointLocation", str(checkpoint_root / "alerts"))
-        .trigger(processingTime=config.streaming["trigger_interval"])
-        .start()
-    )
-
-    monitor_query = (
-        enriched.withWatermark("event_ts", config.streaming["watermark_delay"])
-        .groupBy(
-            F.window(
-                "event_ts",
-                config.streaming["monitor_window"],
-                config.streaming["monitor_slide"],
-            ),
-            "state",
-            "risk_band",
-        )
-        .agg(
-            F.count("*").alias("txn_count"),
-            F.avg("fraud_probability").alias("avg_fraud_probability"),
-        )
-        .writeStream.outputMode("update")
-        .format("console")
-        .option("truncate", False)
-        .option("checkpointLocation", str(checkpoint_root / "monitor"))
-        .trigger(processingTime=config.streaming["trigger_interval"])
-        .start()
-    )
-
-    return [scored_query, alerts_query, monitor_query]
+    LOGGER.info("Batch monitoring summary: %s", monitor.to_dict(orient="records"))
 
 
 def main() -> None:
     configure_logging()
     args = parse_args()
     config = load_config(args.config)
-    spark = build_spark_session(config, config.spark["app_name_stream"])
-    model_path = str(config.resolve_path(config.data["model_dir"]))
+    model_path = config.resolve_path(config.data["model_dir"])
+    threshold = float(config.streaming["fraud_probability_threshold"])
 
     LOGGER.info("Loading model from %s", model_path)
     model = load_model(model_path)
-    source_stream = build_source_stream(config, spark)
-    feature_stream = add_derived_features(validate_transactions(sanitize_input_columns(source_stream)))
-    scored = model.transform(feature_stream)
-
-    queries = write_outputs(scored, config)
-    LOGGER.info("Started %s streaming queries", len(queries))
-    for query in queries:
-        query.awaitTermination()
+    for raw_batch in build_source_batches(config):
+        valid_batch = validate_transactions(sanitize_input_columns(raw_batch))
+        if valid_batch.empty:
+            LOGGER.warning("Skipping empty or invalid batch.")
+            continue
+        features = add_derived_features(valid_batch)
+        scored = score_frame(model, features[FEATURE_COLUMNS], threshold=threshold)
+        overlapping_columns = [column for column in scored.columns if column in features]
+        raw_context = features.drop(columns=overlapping_columns)
+        scored = pd.concat(
+            [raw_context, scored],
+            axis=1,
+        )
+        write_outputs(scored, config)
 
 
 if __name__ == "__main__":

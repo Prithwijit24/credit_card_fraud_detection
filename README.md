@@ -1,101 +1,126 @@
-# 🛡️ Credit Card Fraud Detection Pipeline
+# Credit Card Fraud Detection Pipeline
 
-[![Spark](https://img.shields.io/badge/Spark-3.5+-E25A1C?style=for-the-badge&logo=apachespark&logoColor=white)](https://spark.apache.org/)
+[![Pandas](https://img.shields.io/badge/Pandas-2.1+-150458?style=for-the-badge&logo=pandas&logoColor=white)](https://pandas.pydata.org/)
+[![scikit--learn](https://img.shields.io/badge/scikit--learn-1.3+-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
 [![Kafka](https://img.shields.io/badge/Kafka-3.6+-000000?style=for-the-badge&logo=apachekafka&logoColor=white)](https://kafka.apache.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 
-A **production-grade** real-time fraud detection engine. This isn't just a model; it's a complete ecosystem designed to train, score, and alert at scale using the modern Big Data stack.
+An end-to-end fraud detection system built around Pandas feature engineering, a persisted
+scikit-learn model pipeline, Kafka micro-batch scoring, and a low-latency FastAPI scoring path.
+The design emphasizes the parts that matter in a senior data science interview: training-serving
+parity, rare-event evaluation, explicit quality gates, reproducible artifacts, and operationally
+simple deployment.
 
----
-
-## 📽️ System Architecture
-
-Understanding the flow is easy. We move from **Historical Insights** to **Real-Time Actions**:
+## System Architecture
 
 ```mermaid
 graph TD
-    subgraph "1. Training Phase (Offline)"
-        A[(Historical CSV)] -->|Clean & Engineer| B[PySpark Trainer]
-        B -->|Hyperparameter Tuning| C{Quality Gate}
-        C -->|Pass| D[Serialized Model Artifact]
+    subgraph "Offline Training"
+        A[(Historical Transactions CSV)] --> B[Pandas Schema Coercion]
+        B --> C[Validation + Feature Engineering]
+        C --> D[sklearn Preprocessing + Random Forest]
+        D --> E[PR-AUC Cross-Validation]
+        E --> F{Promotion Gate}
+        F -->|Pass| G[models/trained/latest/model.joblib]
+        F -->|Fail| H[Abort Promotion]
     end
 
-    subgraph "2. Scoring Phase (Online)"
-        E((Kafka Stream)) -->|Live Events| F[Structured Streaming Job]
-        D -.->|Load Model| F
-        F -->|Predict| G[Fraud Probability]
+    subgraph "Online Scoring"
+        I((Kafka Topic)) --> J[Pandas Micro-Batch Scorer]
+        K[FastAPI /score] --> L[Single-Transaction Scorer]
+        G -.-> J
+        G -.-> L
     end
 
-    subgraph "3. Output & Monitoring"
-        G --> H[(Scored Parquet Sink)]
-        G -->|Risk > Threshold| I[🔥 Fraud Alert JSON]
-        G --> J[📊 Console Metrics]
+    subgraph "Outputs"
+        J --> M[data/scored/*.jsonl]
+        J --> N[data/alerts/*.jsonl]
+        J --> O[Batch Monitoring Logs]
+        L --> P[fraud_probability + risk_band]
     end
-
-    style I fill:#f96,stroke:#333,stroke-width:2px
-    style D fill:#bbf,stroke:#333,stroke-width:2px
 ```
 
----
+## What Makes This Production-Oriented
 
-## 🚀 Key Features
-
-| Feature | Description |
+| Capability | Implementation |
 | :--- | :--- |
-| **Unified Logic** | Exactly the same feature engineering used for both Training and Streaming. No skew! |
-| **Quality Gates** | Automatic AUC-ROC validation (>= 0.85) before any model is promoted. |
-| **Dual-Path Scoring** | Choose between **High-Throughput Streaming** or **Low-Latency REST API**. |
-| **Fault Tolerant** | Built-in Spark checkpointing and Kafka replay support. |
+| Training-serving parity | `features.py` and `schemas.py` are reused by training, API scoring, and stream scoring. |
+| Rare-event evaluation | Model selection optimizes average precision / PR-AUC instead of accuracy. |
+| Promotion control | Training refuses to save weak models when PR-AUC or recall misses the quality gate. |
+| Imbalance handling | Random Forest uses class weighting plus sample weights from observed fraud skew. |
+| Unknown category safety | The sklearn pipeline uses imputation and one-hot encoding with unknown handling. |
+| Simple serving artifact | The full preprocessing + model pipeline is saved as `model.joblib`. |
+| Operational paths | Supports batch training, Kafka micro-batch scoring, and synchronous REST scoring. |
 
----
+## Project Structure
 
-## 📂 Project Structure
+```text
+configs/                  Runtime paths, thresholds, and model hyperparameters
+docker/                   Lightweight Python images for trainer and scorer
+docs/architecture.md      Operational architecture and extension notes
+scripts/                  Thin CLI wrappers
+src/fraud_detection/
+  features.py             Shared Pandas feature engineering
+  schemas.py              Canonical transaction schema coercion
+  pipeline/
+    validation.py         Data quality checks
+    modeling.py           sklearn pipeline and model persistence
+    metrics.py            Fraud-focused evaluation and scoring helpers
+  jobs/
+    train.py              Offline trainer with CV and promotion gate
+    streaming.py          Kafka/CSV micro-batch scorer
+    api.py                FastAPI scoring endpoint
+tests/                    Unit and integration coverage
+```
 
-> [!TIP]
-> Explore the codebase like a pro by following this layout:
+## Getting Started
 
-- ⚙️ **`configs/`**: The brain of the operation. Define paths and hyperparams here.
-- 🏗️ **`src/fraud_detection/`**: The core engine.
-  - 🧪 **`pipeline/`**: Logic for validation and modeling.
-  - ⚡ **`jobs/`**: The actual workers (Trainer, Streamer, API).
-- 🧪 **`tests/`**: Battle-testing every component.
-- 🐳 **`docker-compose.yml`**: Launch the entire universe with one command.
+Install the local development environment:
 
----
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -e ".[dev,stream,api]"
+```
 
-## 🛠️ Getting Started
+Train and promote a model:
 
-### 1. The Fast Path (Docker)
-Launch the full stack including Kafka, HDFS, and Spark:
+```bash
+python scripts/train_model.py --config configs/base.yaml
+```
+
+Run the scorer and produce sample traffic:
+
+```bash
+docker compose up -d zookeeper kafka
+python scripts/run_streaming_job.py --config configs/base.yaml
+python scripts/produce_events.py --config configs/base.yaml --records 1000 --delay-seconds 0.02
+```
+
+Or run the containerized demo:
+
 ```bash
 docker compose up --build
 ```
 
-### 2. The Developer Path (Local)
+## Outputs
+
+- `models/trained/latest/model.joblib`: promoted sklearn preprocessing + model artifact
+- `data/metrics/latest_metrics.json`: ROC-AUC, PR-AUC, F1, precision, recall, and confusion counts
+- `data/scored/*.jsonl`: scored transactions with probabilities and risk bands
+- `data/alerts/*.jsonl`: transactions above the fraud probability threshold
+
+## Quality Checks
+
 ```bash
-make install-dev
-make train      # Train the model
-make stream     # Start scoring live events
+pytest
+ruff check .
+mypy src
 ```
 
-> [!IMPORTANT]
-> **Prerequisites**: Ensure you have Java 17+ installed if running outside Docker.
+## Documentation
 
----
-
-## 📈 Operational Monitoring
-
-Once running, check these directories for live results:
-- 🎯 **Scored Events**: `data/scored/`
-- 🚨 **High-Risk Alerts**: `data/alerts/`
-- 📊 **Model Metrics**: `data/metrics/`
-
----
-
-## 🔗 Documentation
-- [📘 Quickstart Guide](./QUICKSTART.md) - Get running in 2 minutes.
-- [🗺️ Codebase Roadmap](./CODEBASE_GUIDE.md) - Where to look first.
-- [🏛️ Architecture Deep-Dive](./docs/architecture.md) - How it all fits together.
-
----
-*Built with ❤️ for High-Performance Engineering.*
+- [Quickstart Guide](./QUICKSTART.md)
+- [Codebase Roadmap](./CODEBASE_GUIDE.md)
+- [Architecture Deep-Dive](./docs/architecture.md)

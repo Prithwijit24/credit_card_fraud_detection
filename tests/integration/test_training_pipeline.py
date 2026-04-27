@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from fraud_detection.features import add_derived_features
+import pandas as pd
+
+from fraud_detection.features import FEATURE_COLUMNS, add_derived_features
 from fraud_detection.pipeline.metrics import compute_class_weights
 from fraud_detection.pipeline.modeling import build_training_pipeline
 
 
-def test_training_pipeline_fit_and_score(spark) -> None:
+def test_training_pipeline_fit_and_score() -> None:
     rows = [
         {
             "row_id": idx,
@@ -35,12 +37,15 @@ def test_training_pipeline_fit_and_score(spark) -> None:
         for idx in range(1, 13)
     ]
 
-    df = compute_class_weights(add_derived_features(spark.createDataFrame(rows)))
+    df = compute_class_weights(add_derived_features(pd.DataFrame(rows)))
     pipeline = build_training_pipeline(seed=42, max_bins=32, max_depth=4, num_trees=10)
-    model = pipeline.fit(df)
-    scored = model.transform(df)
+    model = pipeline.fit(
+        df[FEATURE_COLUMNS],
+        df["is_fraud"],
+        classifier__sample_weight=df["class_weight"],
+    )
+    probabilities = model.predict_proba(df[FEATURE_COLUMNS])[:, 1]
+    predictions = model.predict(df[FEATURE_COLUMNS])
 
-    assert "prediction" in scored.columns
-    assert "probability" in scored.columns
-    assert scored.count() == len(rows)
-
+    assert len(probabilities) == len(rows)
+    assert len(predictions) == len(rows)
