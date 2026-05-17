@@ -1,0 +1,24 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fraud-trainer
+  namespace: fraud-detection
+spec:
+  schedule: "0 2 * * 0"
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: trainer
+              image: ghcr.io/OWNER/REPO/fraud-trainer:latest
+              imagePullPolicy: IfNotPresent
+              command: ["fraud", "train", "--config", "docker"]
+              resources:
+                requests:
+                  cpu: "1"
+                  memory: 2Gi
+                limits:
+                  cpu: "4"
+                  memory: 8Gi

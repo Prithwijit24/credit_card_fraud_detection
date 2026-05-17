@@ -32,4 +32,27 @@ jobs:
           file: docker/Dockerfile.streaming
           push: true
           tags: ghcr.io/${{ github.repository }}/fraud-streaming:${{ github.ref_name }}
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.api
+          push: true
+          tags: ghcr.io/${{ github.repository }}/fraud-api:${{ github.ref_name }}
+      - name: Build and push UI image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.ui
+          push: true
+          tags: ghcr.io/${{ github.repository }}/fraud-ui:${{ github.ref_name }}
 
+  manifest-smoke:
+    runs-on: ubuntu-latest
+    needs: publish-images
+    steps:
+      - uses: actions/checkout@v4
+      - name: Render Kubernetes manifests
+        run: |
+          sed -i "s|ghcr.io/OWNER/REPO|ghcr.io/${{ github.repository }}|g" k8s/*.yaml
+          grep -R "ghcr.io/${{ github.repository }}" k8s

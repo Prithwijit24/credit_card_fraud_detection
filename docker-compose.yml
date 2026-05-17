@@ -26,12 +26,11 @@ services:
       context: .
       dockerfile: docker/Dockerfile.trainer
     volumes:
-      - ./configs:/app/configs
       - ../data:/data:ro
       - ./models:/app/models
       - ./data:/app/data
     command: >
-      python scripts/train_model.py --config configs/docker.yaml
+      fraud train --config docker
 
   streaming-job:
     build:
@@ -41,11 +40,35 @@ services:
       - kafka
       - trainer
     volumes:
-      - ./configs:/app/configs
       - ./models:/app/models
       - ./data:/app/data
     command: >
-      python scripts/run_streaming_job.py --config configs/docker.yaml
+      fraud stream --config docker
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    depends_on:
+      - trainer
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    command: >
+      fraud api --config docker --host 0.0.0.0 --port 8000
+
+  streamlit:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ui
+    depends_on:
+      - api
+    environment:
+      FRAUD_API_URL: http://api:8000
+    ports:
+      - "8501:8501"
 
   producer:
     build:
@@ -54,7 +77,6 @@ services:
     depends_on:
       - kafka
     volumes:
-      - ./configs:/app/configs
       - ../data:/data:ro
     command: >
-      python scripts/produce_events.py --config configs/docker.yaml --records 1000 --delay-seconds 0.02
+      fraud produce --config docker --records 1000 --delay-seconds 0.02

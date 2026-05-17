@@ -9,31 +9,32 @@ LOGGER = logging.getLogger(__name__)
 
 def validate_transactions(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Applies data quality checks to the transaction frame.
-    Drops records that violate core assumptions.
+    Drop records that cannot be scored under the notebook transaction schema.
     """
     initial_count = len(df)
-    amount = pd.to_numeric(df["amt"], errors="coerce") if "amt" in df else pd.Series(index=df.index)
+    amount = (
+        pd.to_numeric(df["transactionAmount"], errors="coerce")
+        if "transactionAmount" in df
+        else pd.Series(index=df.index, dtype="float64")
+    )
     timestamp = (
-        pd.to_datetime(df["trans_date_trans_time"], errors="coerce")
-        if "trans_date_trans_time" in df
-        else pd.Series(index=df.index)
+        pd.to_datetime(df["transactionDateTime"], errors="coerce")
+        if "transactionDateTime" in df
+        else pd.Series(index=df.index, dtype="datetime64[ns]")
     )
 
     required_present = (
-        df.get("cc_num", pd.Series(index=df.index)).notna()
-        & df.get("merchant", pd.Series(index=df.index)).notna()
+        df.get("accountNumber", pd.Series(index=df.index)).notna()
+        & df.get("customerId", pd.Series(index=df.index)).notna()
+        & df.get("merchantName", pd.Series(index=df.index)).notna()
         & timestamp.notna()
     )
     valid_mask = (amount > 0) & required_present
     valid_df = df.loc[valid_mask].copy()
 
-    final_count = len(valid_df)
-    dropped_count = initial_count - final_count
-
+    dropped_count = initial_count - len(valid_df)
     if dropped_count > 0:
         LOGGER.warning("Data validation dropped %s malformed records.", dropped_count)
     else:
         LOGGER.info("Data validation passed. No records dropped.")
-
     return valid_df

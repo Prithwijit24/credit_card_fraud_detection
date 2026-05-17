@@ -6,9 +6,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md /app/
 COPY src /app/src
-COPY scripts /app/scripts
-COPY configs /app/configs
 
 RUN pip install --no-cache-dir -e ".[stream]"
 
-CMD ["python", "scripts/run_streaming_job.py", "--config", "configs/base.yaml"]
+CMD ["fraud", "stream", "--config", "base"]

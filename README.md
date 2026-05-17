@@ -1,126 +1,106 @@
-# Credit Card Fraud Detection Pipeline
+# 💳 Credit Card Fraud Detection Platform
 
-[![Pandas](https://img.shields.io/badge/Pandas-2.1+-150458?style=for-the-badge&logo=pandas&logoColor=white)](https://pandas.pydata.org/)
-[![scikit--learn](https://img.shields.io/badge/scikit--learn-1.3+-F7931E?style=for-the-badge&logo=scikitlearn&logoColor=white)](https://scikit-learn.org/)
-[![Kafka](https://img.shields.io/badge/Kafka-3.6+-000000?style=for-the-badge&logo=apachekafka&logoColor=white)](https://kafka.apache.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+A production-style fraud detection platform based on the Capital One-style transaction dataset.
+The project turns the notebook workflow into a **deployable, resilient, and observable system** with:
 
-An end-to-end fraud detection system built around Pandas feature engineering, a persisted
-scikit-learn model pipeline, Kafka micro-batch scoring, and a low-latency FastAPI scoring path.
-The design emphasizes the parts that matter in a senior data science interview: training-serving
-parity, rare-event evaluation, explicit quality gates, reproducible artifacts, and operationally
-simple deployment.
+⚙️ *Schema Governance* · 🛡️ *Leakage-safe Features* · 🗃️ *DuckDB Feature Store* · 🧠 *Model Training* · 🌊 *Kafka Micro-batch Scoring* · 🚀 *FastAPI Serving* · 🖥️ *Streamlit UI* · 🐳 *Docker & K8s* · 🤖 *CI/CD*
 
-## System Architecture
+---
+
+## 🏗️ System Architecture
 
 ```mermaid
 graph TD
-    subgraph "Offline Training"
-        A[(Historical Transactions CSV)] --> B[Pandas Schema Coercion]
-        B --> C[Validation + Feature Engineering]
-        C --> D[sklearn Preprocessing + Random Forest]
-        D --> E[PR-AUC Cross-Validation]
-        E --> F{Promotion Gate}
-        F -->|Pass| G[models/trained/latest/model.joblib]
-        F -->|Fail| H[Abort Promotion]
+    subgraph "Offline Training 🏋️"
+        A[(Historical Transactions)] --> B[Notebook Schema Coercion]
+        B --> C[Validation]
+        C --> D[Chronological Split]
+        D --> E[Leakage-Safe Features]
+        E --> F[DuckDB Feature Store]
+        F --> G[XGBoost / RF / Optional Challengers]
+        G --> H[PR-AUC Walk-Forward CV]
+        H --> I{Promotion Gate}
+        I -->|Pass| J[models/trained/latest/model.joblib]
+        I -->|Fail| K[Abort Promotion]
     end
 
-    subgraph "Online Scoring"
-        I((Kafka Topic)) --> J[Pandas Micro-Batch Scorer]
-        K[FastAPI /score] --> L[Single-Transaction Scorer]
-        G -.-> J
-        G -.-> L
+    subgraph "Online Scoring 🌊"
+        L((Kafka Topic)) --> M[Pandas Micro-Batch Scorer]
+        N[FastAPI /score] --> O[Single-Transaction Scorer]
+        P[Streamlit UI] --> N
+        J -.-> M
+        J -.-> O
     end
 
-    subgraph "Outputs"
-        J --> M[data/scored/*.jsonl]
-        J --> N[data/alerts/*.jsonl]
-        J --> O[Batch Monitoring Logs]
-        L --> P[fraud_probability + risk_band]
+    subgraph "Outputs 📈"
+        M --> Q[data/scored/*.jsonl]
+        M --> R[data/alerts/*.jsonl]
+        O --> S[probability + risk_band + reasons]
     end
 ```
 
-## What Makes This Production-Oriented
+## ✨ Core Pillars
 
-| Capability | Implementation |
-| :--- | :--- |
-| Training-serving parity | `features.py` and `schemas.py` are reused by training, API scoring, and stream scoring. |
-| Rare-event evaluation | Model selection optimizes average precision / PR-AUC instead of accuracy. |
-| Promotion control | Training refuses to save weak models when PR-AUC or recall misses the quality gate. |
-| Imbalance handling | Random Forest uses class weighting plus sample weights from observed fraud skew. |
-| Unknown category safety | The sklearn pipeline uses imputation and one-hot encoding with unknown handling. |
-| Simple serving artifact | The full preprocessing + model pipeline is saved as `model.joblib`. |
-| Operational paths | Supports batch training, Kafka micro-batch scoring, and synchronous REST scoring. |
+| Capability | Implementation | 💡 Benefit |
+| :--- | :--- | :--- |
+| **Training-serving parity** | `schemas.py`, `validation.py`, `features.py` | Eliminates training-production drift. |
+| **Leakage control** | Chronological split | Ensures realistic evaluation. |
+| **Rare-event evaluation** | PR-AUC optimization | Focuses on detection accuracy where it matters. |
+| **Operational explainability** | Risk bands & reason strings | Helps analysts triage alerts faster. |
 
-## Project Structure
+## 📊 Sample Output (Terminal)
 
 ```text
-configs/                  Runtime paths, thresholds, and model hyperparameters
-docker/                   Lightweight Python images for trainer and scorer
-docs/architecture.md      Operational architecture and extension notes
-scripts/                  Thin CLI wrappers
-src/fraud_detection/
-  features.py             Shared Pandas feature engineering
-  schemas.py              Canonical transaction schema coercion
-  pipeline/
-    validation.py         Data quality checks
-    modeling.py           sklearn pipeline and model persistence
-    metrics.py            Fraud-focused evaluation and scoring helpers
-  jobs/
-    train.py              Offline trainer with CV and promotion gate
-    streaming.py          Kafka/CSV micro-batch scorer
-    api.py                FastAPI scoring endpoint
-tests/                    Unit and integration coverage
+$ fraud stream --config base
+[2026-05-18 10:00:01] INFO: Initializing scorer...
+[2026-05-18 10:00:05] INFO: Consumed batch: 150 transactions
+[2026-05-18 10:00:06] INFO: Scored: 150 | Fraud: 3 | Risk: 🔥 High
+[2026-05-18 10:00:06] INFO: Alerting: 3 records written to data/alerts/20260518.jsonl
+------------------------------------------------------------
+| Fraud Score | Risk Band | Top Reason                           |
+------------------------------------------------------------
+| 0.98        | 🔥 High   | Abnormal amount, Card not present    |
+| 0.85        | ⚠️ Medium | New merchant, Cross-border           |
+| 0.45        | 🟢 Low    | None                                 |
+------------------------------------------------------------
 ```
 
-## Getting Started
+## 📂 Project Structure
 
-Install the local development environment:
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -e ".[dev,stream,api]"
+```text
+📁 docker/                   🐳 Runtime images
+📄 docs/architecture.md      🏗️ System deep-dive
+⚙️ scripts/run_ui.py         🖥️ Streamlit launcher
+📂 src/fraud_detection/
+  📄 cli.py                  ⚡ Unified `fraud` CLI
+  ⚙️ configs/                🧩 Runtime YAML configs
+  🧬 feature_transforms/     🧪 Modular feature engineering
+  🧠 models/                 🤖 Registered model components
+  🛠️ jobs/                   🚀 Production entrypoints
+  ⚙️ pipeline/               ✅ Data validation & modeling
+☸️ k8s/                      ☸️ K8s manifests
+🧪 tests/                    ✅ Unit & integration tests
 ```
 
-Train and promote a model:
+## 🚀 Getting Started
 
-```bash
-python scripts/train_model.py --config configs/base.yaml
-```
+1. **Setup Env** 🛠️:
+   ```bash
+   python -m venv .venv
+   source .venv/bin/activate
+   pip install -e ".[dev,stream,api,ui]"
+   ```
 
-Run the scorer and produce sample traffic:
+2. **Train Model** 🏋️:
+   ```bash
+   fraud train --config base
+   ```
 
-```bash
-docker compose up -d zookeeper kafka
-python scripts/run_streaming_job.py --config configs/base.yaml
-python scripts/produce_events.py --config configs/base.yaml --records 1000 --delay-seconds 0.02
-```
+3. **Run Pipeline** 🌊:
+   ```bash
+   docker compose up -d zookeeper kafka
+   fraud stream --config base
+   ```
 
-Or run the containerized demo:
-
-```bash
-docker compose up --build
-```
-
-## Outputs
-
-- `models/trained/latest/model.joblib`: promoted sklearn preprocessing + model artifact
-- `data/metrics/latest_metrics.json`: ROC-AUC, PR-AUC, F1, precision, recall, and confusion counts
-- `data/scored/*.jsonl`: scored transactions with probabilities and risk bands
-- `data/alerts/*.jsonl`: transactions above the fraud probability threshold
-
-## Quality Checks
-
-```bash
-pytest
-ruff check .
-mypy src
-```
-
-## Documentation
-
-- [Quickstart Guide](./QUICKSTART.md)
-- [Codebase Roadmap](./CODEBASE_GUIDE.md)
-- [Architecture Deep-Dive](./docs/architecture.md)
+---
+*For a full graph-based analysis of the codebase, see [graphify-out/GRAPH_REPORT.md](./graphify-out/GRAPH_REPORT.md).*

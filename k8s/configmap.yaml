@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fraud-config
+  namespace: fraud-detection
+data:
+  FRAUD_CONFIG: docker
+  FRAUD_API_URL: http://fraud-api:8000

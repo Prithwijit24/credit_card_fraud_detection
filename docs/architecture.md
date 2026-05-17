@@ -1,95 +1,103 @@
-# Architecture & Operations
+# 🏗️ Architecture & Operations
 
-The system is organized around one invariant: the same schema, validation, feature engineering,
-and sklearn pipeline are used everywhere a transaction is scored.
+The system is organized around one invariant: the notebook transaction schema, validation rules,
+feature builders, DuckDB feature-store contract, and persisted model artifact are reused anywhere
+a transaction is scored.
 
-## Event Lifecycle
+---
+
+## 🔄 Event Lifecycle
 
 ```mermaid
 sequenceDiagram
-    participant P as Producer / Card Event
-    participant K as Kafka Topic
-    participant S as Pandas Micro-Batch Scorer
-    participant M as model.joblib
-    participant A as Alert Sink
-    participant O as Scored Sink
+    participant P as 💳 Producer
+    participant K as 📨 Kafka Topic
+    participant S as 🌊 Micro-Batch Scorer
+    participant M as 🧠 model.joblib
+    participant A as 🚨 Alert Sink
+    participant O as 📈 Scored Sink
 
-    P->>K: Publish transaction JSON
-    K-->>S: Consume bounded micro-batch
-    S->>S: Coerce schema + validate
-    S->>S: Build shared Pandas features
-    S->>M: Apply persisted sklearn pipeline
-    M-->>S: Fraud probability
-    alt probability >= threshold
-        S->>A: Write alert JSONL
-    else probability < threshold
-        S->>O: Write scored JSONL
+    P->>K: Publish transaction
+    K-->>S: Consume batch
+    S->>S: Schema Coerce & Validate ✅
+    S->>S: Feature Engineering 🧬
+    S->>S: Store to DuckDB 🗃️
+    S->>M: Predict Probability
+    M-->>S: Score
+    S->>O: Write Scored JSONL
+    alt High Risk
+        S->>A: Write Alert JSONL 🚨
     end
-    S->>S: Log monitoring summary by state and risk band
 ```
 
-## Training Lifecycle
+---
+
+## 🏋️ Training Lifecycle
 
 ```mermaid
 flowchart LR
-    A[CSV Training Data] --> B[Schema Coercion]
+    A[Historical Data] --> B[Schema Check]
     B --> C[Validation]
-    C --> D[Feature Engineering]
-    D --> E[Stratified Train/Test Split]
-    E --> F[GridSearchCV on PR-AUC]
-    F --> G[Test Metrics]
-    G --> H{PR-AUC + Recall Gate}
-    H -->|Pass| I[Save model.joblib]
-    H -->|Fail| J[Abort Promotion]
+    C --> D[Split 🗓️]
+    D --> E[Features 🧬]
+    E --> F[DuckDB 🗃️]
+    F --> G[CV 📊]
+    G --> H[Metrics]
+    H --> I{Gate 🚦}
+    I -->|Pass| J[Promote 🏆]
+    I -->|Fail| K[Abort ❌]
 ```
 
-## Canonical Schema
+---
 
-| Category | Fields | Usage |
-| :--- | :--- | :--- |
-| Identity | `cc_num`, `merchant`, `trans_num` | Validation, auditability, merchant signal. |
-| Temporal | `trans_date_trans_time`, `unix_time`, `dob` | Age, hour, day-of-week, night flag. |
-| Geospatial | `lat`, `long`, `merch_lat`, `merch_long` | Customer-to-merchant distance. |
-| Financial | `amt` | Transaction amount and validation. |
-| Context | `category`, `gender`, `state`, `job`, `city_pop` | Categorical and numeric model features. |
-| Label | `is_fraud` | Training and offline evaluation only. |
+## 📑 Core Components
 
-## Model Pipeline
+### 🧠 Model Pipeline
+The persisted artifact stores the **sklearn-compatible** pipeline + metadata:
+*   📋 Schema version
+*   📊 Feature list
+*   🚦 Threshold
+*   ✅ Metrics
+*   🧠 Model family & training mode
+*   🎯 Fitted entity encoders
 
-The persisted sklearn artifact includes:
+### 🧬 Feature Pipeline
+Built from testable components:
+*   📜 `TransactionHistoryFeature` (velocity, recency)
+*   ⏰ `TemporalFeature` (time flags)
+*   🧑‍ `AccountAgeFeature` (tenure)
+*   💰 `AmountRatioFeature` (utilization)
+*   🚨 `TransactionRiskFeature` (CVV/POS flags)
+*   🎯 `EntityEncodingFeature` (fraud-rate encodings)
 
-- categorical imputation
-- one-hot encoding with unknown-category handling
-- numeric median imputation
-- weighted Random Forest classifier
+---
 
-Because preprocessing is inside the saved artifact, the API and streaming scorer do not need to
-recreate training-time encoders manually.
+## 📊 System Insights (Graph Analysis)
 
-## Evaluation Strategy
+The codebase has been analyzed for architectural complexity.
 
-Fraud is a rare-event classification problem, so the system does not optimize for accuracy.
+> **Key Findings:**
+> *   `main()` is the primary orchestrator, linking ingestion, feature engineering, and training.
+> *   The "Shared Training and Serving Contract" is the project's most critical high-level abstraction.
+> *   Testing is heavily driven by fixtures that mirror the notebook transaction schema.
+>
+> *For detailed community hubs and edge dependencies, see [graphify-out/GRAPH_REPORT.md](../graphify-out/GRAPH_REPORT.md).*
 
-- `average_precision` / PR-AUC is used during cross-validation.
-- ROC-AUC is still reported, but it is not the primary promotion signal.
-- Precision, recall, F1, true positives, false positives, true negatives, and false negatives are
-  written to `data/metrics/latest_metrics.json`.
-- The promotion gate blocks model saves when PR-AUC or recall is too weak.
+---
 
-## Operational Notes
+## 🌐 Serving Surfaces
 
-- Kafka offsets should be externally managed for production-grade replay guarantees.
-- JSONL sinks are intentionally simple for local demos; production sinks would usually be object
-  storage, a warehouse table, or a feature/alert service.
-- The fraud probability threshold should be tuned against business costs, not guessed from model
-  metrics alone.
-- Drift monitoring should compare live feature distributions and score distributions against the
-  training baseline.
+| Interface | Usage |
+| :--- | :--- |
+| **FastAPI** | `/health`, `/metadata`, `/score` |
+| **Kafka** | Micro-batch ingestion/scoring |
+| **Streamlit** | Analyst console |
+| **K8s** | Scalable deployment |
 
-## Extension Points
-
-- Add cardholder velocity features such as spend in the last 1 hour, merchant count in the last
-  24 hours, and distance from previous transaction.
-- Add calibration if downstream teams need probabilities that map tightly to observed fraud rates.
-- Add a model registry layer to track artifact versions, thresholds, and metric snapshots.
-- Add a backfill job that scores historical data for threshold analysis and analyst review.
+*For runtime usage, refer to the unified `fraud` CLI:*
+```bash
+fraud train --config base
+fraud stream --config base
+fraud api --config base --host 0.0.0.0 --port 8000
+fraud ui
+```

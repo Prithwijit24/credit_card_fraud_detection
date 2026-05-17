@@ -20,13 +20,24 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,stream]"
+          pip install -e ".[dev,stream,api,ui]"
       - name: Lint
         run: ruff check .
       - name: Type-check
         run: mypy src
       - name: Unit and integration tests
         run: pytest
+      - name: Build package
+        run: python -m pip install build && python -m build
+      - name: Validate Kubernetes manifests
+        run: |
+          python - <<'PY'
+          import yaml
+          from pathlib import Path
+          for path in Path("k8s").glob("*.yaml"):
+              docs = list(yaml.safe_load_all(path.read_text()))
+              assert all(doc and doc.get("kind") for doc in docs), path
+          PY
 
   container-build:
     runs-on: ubuntu-latest
@@ -36,3 +47,7 @@ jobs:
         run: docker build -f docker/Dockerfile.trainer -t fraud-trainer:ci .
       - name: Build streaming image
         run: docker build -f docker/Dockerfile.streaming -t fraud-streaming:ci .
+      - name: Build API image
+        run: docker build -f docker/Dockerfile.api -t fraud-api:ci .
+      - name: Build UI image
+        run: docker build -f docker/Dockerfile.ui -t fraud-ui:ci .

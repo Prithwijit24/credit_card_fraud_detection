@@ -15,26 +15,37 @@ from sklearn.metrics import (
 )
 
 
-def compute_class_weights(df: pd.DataFrame) -> pd.DataFrame:
+def compute_class_weights(df: pd.DataFrame, label_column: str = "isFraud") -> pd.DataFrame:
     weighted = df.copy()
-    counts = weighted["is_fraud"].value_counts(dropna=False)
+    weighted[label_column] = weighted[label_column].astype(int)
+    counts = weighted[label_column].value_counts(dropna=False)
     majority = counts.max()
     fraud_count = counts.get(1, majority)
     fraud_weight = float(majority / fraud_count) if fraud_count else 1.0
-    weighted["class_weight"] = weighted["is_fraud"].map({1: fraud_weight}).fillna(1.0)
+    weighted["class_weight"] = weighted[label_column].map({1: fraud_weight}).fillna(1.0)
     return weighted
 
 
-def score_frame(model: Any, features: pd.DataFrame, threshold: float) -> pd.DataFrame:
+def score_frame(
+    model: Any,
+    features: pd.DataFrame,
+    threshold: float,
+    label_column: str = "isFraud",
+) -> pd.DataFrame:
     scored = features.copy()
     probabilities = model.predict_proba(features)[:, 1]
     scored["fraud_probability"] = probabilities
     scored["prediction"] = (probabilities >= threshold).astype(int)
+    scored["risk_band"] = "normal"
+    scored.loc[scored["fraud_probability"] >= 0.5, "risk_band"] = "elevated"
+    scored.loc[scored["fraud_probability"] >= threshold, "risk_band"] = "critical"
+    if label_column not in scored:
+        scored[label_column] = 0
     return scored
 
 
-def collect_metrics(predictions: pd.DataFrame) -> dict[str, float]:
-    y_true = predictions["is_fraud"].astype(int)
+def collect_metrics(predictions: pd.DataFrame, label_column: str = "isFraud") -> dict[str, float]:
+    y_true = predictions[label_column].astype(int)
     y_score = predictions["fraud_probability"].astype(float)
     y_pred = predictions["prediction"].astype(int)
     has_two_classes = y_true.nunique() == 2

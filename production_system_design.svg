@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <defs>
+    <style>
+      .title{font:700 34px Arial;fill:#17202a}
+      .label{font:700 18px Arial;fill:#17202a}
+      .text{font:14px Arial;fill:#243447}
+      .small{font:12px Arial;fill:#435466}
+      .box{fill:#f8fbff;stroke:#315a8a;stroke-width:2;rx:8}
+      .store{fill:#f8fff6;stroke:#2f7d32;stroke-width:2;rx:8}
+      .serve{fill:#fff9f2;stroke:#b76500;stroke-width:2;rx:8}
+      .ops{fill:#fbf7ff;stroke:#7653a8;stroke-width:2;rx:8}
+      .arrow{stroke:#405466;stroke-width:2.2;marker-end:url(#arrow)}
+    </style>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#405466"/>
+    </marker>
+  </defs>
+  <rect width="1400" height="900" fill="#ffffff"/>
+  <text x="44" y="58" class="title">Credit Card Fraud Detection Production System Design</text>
+  <text x="46" y="88" class="text">Kafka + DuckDB feature store + model training + FastAPI serving + Streamlit analyst console + Kubernetes + CI/CD</text>
+
+  <rect x="50" y="135" width="245" height="132" class="box"/>
+  <text x="75" y="168" class="label">Ingestion</text>
+  <text x="75" y="198" class="text">JSONL / CSV historical data</text>
+  <text x="75" y="222" class="text">Kafka card-transactions topic</text>
+  <text x="75" y="246" class="small">Schema: Capital One notebook fields</text>
+
+  <rect x="365" y="135" width="260" height="132" class="box"/>
+  <text x="390" y="168" class="label">Validation + Features</text>
+  <text x="390" y="198" class="text">Schema coercion and DQ gates</text>
+  <text x="390" y="222" class="text">Velocity, CVV, expiry, POS</text>
+  <text x="390" y="246" class="small">Left-closed rolling windows prevent leakage</text>
+
+  <rect x="695" y="135" width="250" height="132" class="store"/>
+  <text x="720" y="168" class="label">DuckDB Feature Store</text>
+  <text x="720" y="198" class="text">Offline training snapshots</text>
+  <text x="720" y="222" class="text">Online scoring append path</text>
+  <text x="720" y="246" class="small">Replayable feature history</text>
+
+  <rect x="1015" y="135" width="310" height="132" class="box"/>
+  <text x="1040" y="168" class="label">Model Training</text>
+  <text x="1040" y="198" class="text">XGBoost champion, RF/LR baselines</text>
+  <text x="1040" y="222" class="text">IForest, OCSVM, LGBM, CatBoost</text>
+  <text x="1040" y="246" class="small">PR-AUC CV + promotion gates</text>
+
+  <line x1="295" y1="201" x2="365" y2="201" class="arrow"/>
+  <line x1="625" y1="201" x2="695" y2="201" class="arrow"/>
+  <line x1="945" y1="201" x2="1015" y2="201" class="arrow"/>
+
+  <rect x="175" y="360" width="300" height="145" class="serve"/>
+  <text x="200" y="392" class="label">Kafka Streaming Scorer</text>
+  <text x="200" y="424" class="text">Consumes micro-batches</text>
+  <text x="200" y="448" class="text">Writes scored JSONL and alerts</text>
+  <text x="200" y="472" class="small">Appends live features to DuckDB</text>
+
+  <rect x="550" y="360" width="300" height="145" class="serve"/>
+  <text x="575" y="392" class="label">FastAPI Backend</text>
+  <text x="575" y="424" class="text">/health /metadata /score</text>
+  <text x="575" y="448" class="text">/score/batch + feature-store append</text>
+  <text x="575" y="472" class="small">Loads model.joblib + metadata</text>
+
+  <rect x="925" y="360" width="300" height="145" class="serve"/>
+  <text x="950" y="392" class="label">Streamlit UI</text>
+  <text x="950" y="424" class="text">Analyst transaction scoring</text>
+  <text x="950" y="448" class="text">Model metadata inspection</text>
+  <text x="950" y="472" class="small">Calls FastAPI backend</text>
+
+  <line x1="820" y1="267" x2="325" y2="360" class="arrow"/>
+  <line x1="1145" y1="267" x2="700" y2="360" class="arrow"/>
+  <line x1="925" y1="433" x2="850" y2="433" class="arrow"/>
+
+  <rect x="150" y="610" width="315" height="145" class="ops"/>
+  <text x="175" y="642" class="label">Kubernetes Runtime</text>
+  <text x="175" y="674" class="text">API deployment + service</text>
+  <text x="175" y="698" class="text">Streaming deployment</text>
+  <text x="175" y="722" class="small">Trainer CronJob and UI deployment</text>
+
+  <rect x="542" y="610" width="315" height="145" class="ops"/>
+  <text x="567" y="642" class="label">CI/CD</text>
+  <text x="567" y="674" class="text">ruff, mypy, pytest, package build</text>
+  <text x="567" y="698" class="text">Docker image build and publish</text>
+  <text x="567" y="722" class="small">Manifest validation before release</text>
+
+  <rect x="935" y="610" width="315" height="145" class="ops"/>
+  <text x="960" y="642" class="label">Production Principles</text>
+  <text x="960" y="674" class="text">Training-serving parity</text>
+  <text x="960" y="698" class="text">Typed modular code and tests</text>
+  <text x="960" y="722" class="small">Promotion gates, metadata, observability hooks</text>
+
+  <line x1="325" y1="505" x2="307" y2="610" class="arrow"/>
+  <line x1="700" y1="505" x2="700" y2="610" class="arrow"/>
+  <line x1="1075" y1="505" x2="1092" y2="610" class="arrow"/>
+</svg>

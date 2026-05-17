@@ -1,0 +1,67 @@
+app:
+  name: credit-card-fraud-detection
+  environment: local
+
+data:
+  training_path: data/transactions.txt
+  test_path: data/transactions.txt
+  model_dir: models/trained/latest
+  metrics_dir: data/metrics
+  landing_dir: data/landing
+  scored_dir: data/scored
+  alerts_dir: data/alerts
+
+feature_store:
+  enabled: true
+  provider: duckdb
+  path: data/feature_store/fraud_features.duckdb
+
+runtime:
+  training_job_name: fraud-trainer
+  scoring_job_name: fraud-microbatch-scorer
+
+streaming:
+  source: kafka
+  kafka_bootstrap_servers: kafka:9092
+  kafka_topic: card-transactions
+  starting_offsets: latest
+  max_offsets_per_trigger: 5000
+  trigger_interval: 15 seconds
+  watermark_delay: 2 minutes
+  output_mode: append
+  fraud_probability_threshold: 0.82
+  monitor_window: 5 minutes
+  monitor_slide: 1 minute
+
+model:
+  training_mode: individual
+  seed: 42
+  train_ratio: 0.8
+  test_window_days: 60
+  max_bins: 64
+  max_depth: 8
+  num_trees: 120
+  min_auc_pr: 0.20
+  min_recall: 0.65
+  components:
+    champion: xgboost
+    stacked_order:
+      anomaly_features:
+        - isolation_forest
+        - one_class_svm
+        - autoencoder
+        - tabtransformer
+      boosters:
+        - xgboost
+        - lightgbm
+      meta_learner: catboost
+    challengers:
+      - random_forest
+      - logistic_regression
+      - isolation_forest
+      - one_class_svm
+      - autoencoder
+      - tabtransformer
+      - lightgbm
+      - catboost
+      - stacking_ensemble

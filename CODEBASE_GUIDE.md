@@ -1,56 +1,65 @@
-# Codebase Reading Roadmap
+# 🗺️ Codebase Reading Roadmap
 
-Use this path to understand the system quickly and explain it clearly in an interview.
+Use this path to explore the system efficiently and understand the key components for development, debugging, or interviews.
 
-## Learning Path
+---
 
-| Step | File / Directory | Why read this? |
-| :--- | :--- | :--- |
-| 1 | `README.md` | System overview, architecture, and operating modes. |
-| 2 | `configs/base.yaml` | Data locations, stream settings, fraud threshold, and model hyperparameters. |
-| 3 | `src/fraud_detection/schemas.py` | Canonical Pandas schema coercion across CSV, API, and stream inputs. |
-| 4 | `src/fraud_detection/pipeline/validation.py` | Core data quality assumptions before modeling. |
-| 5 | `src/fraud_detection/features.py` | Shared feature engineering used by every scoring path. |
-| 6 | `src/fraud_detection/pipeline/modeling.py` | sklearn preprocessing, Random Forest, CV, and artifact persistence. |
-| 7 | `src/fraud_detection/pipeline/metrics.py` | Fraud-specific metrics and thresholded scoring. |
-| 8 | `src/fraud_detection/jobs/` | Production entrypoints: training, micro-batch scoring, and API scoring. |
+## 🚀 Learning Path
 
-## Engineering Anatomy
+| Step | Area | 📂 Location | 💡 Why read this? |
+| :--- | :--- | :--- | :--- |
+| **1** | **Overview** | `README.md` | 🌟 System overview & operating modes. |
+| **2** | **Config** | `src/fraud_detection/configs/base.yml` | ⚙️ Data paths, stream & model params. |
+| **3** | **Config Logic** | `src/fraud_detection/config.py` | 🔍 Resolver & path handling. |
+| **4** | **Schema** | `src/fraud_detection/schemas.py` | 📝 Input normalization contract. |
+| **5** | **Validation** | `src/fraud_detection/pipeline/validation.py` | ✅ Quality assurance before modeling. |
+| **6** | **Feature Contract**| `src/fraud_detection/feature_pipeline.py` | 🧬 Unified training/serving contract. |
+| **7** | **Transforms** | `src/fraud_detection/feature_transforms/` | 🧩 Modular feature engineering. |
+| **8** | **Model Registry** | `src/fraud_detection/models/registry.py` | 🧠 Model lookup & dependencies. |
+| **9** | **Pipeline** | `src/fraud_detection/pipeline/modeling.py` | 🏗️ Sklearn pipelines & persistence. |
+| **10**| **Metrics** | `src/fraud_detection/pipeline/metrics.py` | 📊 Fraud-focused evaluation. |
+| **11**| **Entrypoints** | `src/fraud_detection/jobs/` | 🚀 Production execution paths. |
 
-### Core Data Science Layer
+---
 
-- `schemas.py`: normalizes raw records into the canonical transaction shape.
-- `validation.py`: drops malformed records, non-positive amounts, missing IDs, and invalid dates.
-- `features.py`: derives age, distance, transaction hour, day of week, and night-transaction flags.
-- `modeling.py`: creates a single sklearn pipeline that owns preprocessing and classification.
-- `metrics.py`: reports ROC-AUC, PR-AUC, F1, precision, recall, and confusion counts.
+## 🔬 Engineering Anatomy
 
-### Execution Layer
+### 📊 Core Data Science Layer
+*   📝 **Schema & Validation**: `schemas.py` & `validation.py` ensure data consistency.
+*   🧬 **Feature Engine**: `feature_pipeline.py` orchestrates `feature_transforms/` (history, time, account, amount, risk, encodings).
+*   🏗️ **Modeling**: `modeling.py` creates robust sklearn-compatible (individual or stacked) pipelines.
+*   📊 **Evaluation**: `metrics.py` computes fraud-specific performance.
+*   🗄️ **Storage**: `feature_store.py` manages the DuckDB feature store.
 
-- `jobs/train.py`: offline trainer with stratified split, CV, sample weighting, and promotion gate.
-- `jobs/streaming.py`: Kafka or CSV micro-batch scorer writing scored events and alerts.
-- `jobs/api.py`: synchronous single-transaction scoring with the same persisted pipeline.
-- `jobs/producer.py`: sample Kafka producer for replaying transaction events.
+### 🧠 Model Layer
+*   🌟 **Interface**: `models/base.py` defines the standard contract.
+*   🗃️ **Registry**: `models/registry.py` is the single source of truth for model lookup.
+*   🏆 **Champions/Baselines**: `xgboost.py`, `random_forest.py`, `logistic_regression.py`.
+*   📈 **Anomaly/Deep**: `isolation_forest.py`, `one_class_svm.py`, `autoencoder.py`, `tabtransformer.py`.
+*   ✨ **Challengers**: `lightgbm.py`, `catboost.py`, `stacking_ensemble.py`.
 
-### Runtime Layer
+### ⚙️ Execution & Runtime
+*   🏋️ **Training**: `jobs/train.py` (CV, promotion gate).
+*   🌊 **Streaming**: `jobs/streaming.py` (Kafka/CSV scoring).
+*   🌐 **API**: `jobs/api.py` (Synchronous scoring).
+*   🖥️ **UI**: `jobs/ui.py` (Streamlit console).
+*   🐳 **Containerization**: `docker/` (Trainer, Streaming, API, UI images).
+*   ☸️ **Orchestration**: `k8s/` (Deployment manifests).
 
-- `configs/`: runtime settings, data paths, thresholds, and hyperparameters.
-- `docker/`: Python images for trainer and scorer.
-- `docker-compose.yml`: local Kafka plus trainer/scorer/producer topology.
-- `tests/`: focused unit and integration coverage for the shared logic and model pipeline.
+---
 
-## Design Decisions Worth Calling Out
+## 💡 Key Design Philosophies
 
-| Decision | Why it matters |
+| Philosophy | 🛡️ Impact |
 | :--- | :--- |
-| Pandas feature layer | Simple local development and transparent feature logic for tabular fraud data. |
-| One persisted sklearn pipeline | Prevents preprocessing drift between training and serving. |
-| PR-AUC model selection | Better objective for highly imbalanced fraud detection than accuracy. |
-| Recall quality gate | Controls false negatives, which are usually expensive in fraud systems. |
-| Thresholded risk bands | Separates probability estimation from operational alert policy. |
-| Micro-batch scoring | Keeps the streaming path understandable while preserving Kafka-based ingestion. |
+| **Single Artifact** | No drift between training & serving. |
+| **Modular Transforms** | Testable components, unified contract. |
+| **Metadata-in-Model** | Encoders travel with the artifact. |
+| **PR-AUC Objective** | Optimizes for highly imbalanced data. |
+| **DuckDB Store** | Embedded, audit-ready replay store. |
 
-## What to Skip First
+---
 
-- `notebooks/`: exploratory history, not part of the production runtime.
-- Generated local data under `data/`, `models/`, and `coverage.xml`.
+## 🚫 Avoid
+- 📓 `notebooks/`: Purely exploratory.
+- 🗑️ `data/` or `models/` (generated artifacts).

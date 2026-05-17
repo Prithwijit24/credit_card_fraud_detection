@@ -10,19 +10,24 @@ from pathlib import Path
 import pandas as pd
 
 from fraud_detection.config import AppConfig, load_config
-from fraud_detection.features import FEATURE_COLUMNS, add_derived_features, sanitize_input_columns
+from fraud_detection.feature_pipeline import FeaturePipeline
+from fraud_detection.feature_store import DuckDBFeatureStore
 from fraud_detection.logger import configure_logging
+from fraud_detection.pipeline.explainability import ExplainabilityService
 from fraud_detection.pipeline.metrics import score_frame
-from fraud_detection.pipeline.modeling import load_model
-from fraud_detection.pipeline.validation import validate_transactions
-from fraud_detection.schemas import coerce_transaction_schema, frame_from_records
+from fraud_detection.pipeline.modeling import load_artifact
+from fraud_detection.schemas import frame_from_records, read_transactions_csv
 
 LOGGER = logging.getLogger(__name__)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run micro-batch fraud scoring.")
-    parser.add_argument("--config", required=True, help="Path to the YAML config file.")
+    parser.add_argument(
+        "--config",
+        default="base",
+        help="Config name from fraud_detection/configs or explicit .yml path.",
+    )
     return parser.parse_args()
 
 
@@ -77,7 +82,7 @@ def _iter_csv_batches(config: AppConfig) -> Iterable[pd.DataFrame]:
         batch_files = sorted(landing_dir.glob("*.csv"))
         unseen = [path for path in batch_files if path not in seen]
         if unseen:
-            frames = [coerce_transaction_schema(pd.read_csv(path)) for path in unseen]
+            frames = [read_transactions_csv(path) for path in unseen]
             seen.update(unseen)
             yield pd.concat(frames, ignore_index=True)
         else:
@@ -90,7 +95,12 @@ def build_source_batches(config: AppConfig) -> Iterable[pd.DataFrame]:
     return _iter_csv_batches(config)
 
 
-def write_outputs(scored_df: pd.DataFrame, config: AppConfig) -> None:
+def write_outputs(
+    scored_df: pd.DataFrame,
+    config: AppConfig,
+    model_version: str = "unknown",
+    explainer: ExplainabilityService | None = None,
+) -> None:
     threshold = float(config.streaming["fraud_probability_threshold"])
     scored_dir = config.resolve_path(config.data["scored_dir"])
     alerts_dir = config.resolve_path(config.data["alerts_dir"])
@@ -98,9 +108,9 @@ def write_outputs(scored_df: pd.DataFrame, config: AppConfig) -> None:
     alerts_dir.mkdir(parents=True, exist_ok=True)
 
     enriched = scored_df.copy()
-    enriched["risk_band"] = "normal"
-    enriched.loc[enriched["fraud_probability"] >= 0.5, "risk_band"] = "elevated"
-    enriched.loc[enriched["fraud_probability"] >= threshold, "risk_band"] = "critical"
+    enriched["model_version"] = model_version
+    if explainer is not None:
+        enriched = explainer.explain_frame(enriched)
 
     batch_id = int(time.time() * 1000)
     enriched.to_json(scored_dir / f"scored-{batch_id}.jsonl", orient="records", lines=True)
@@ -109,7 +119,7 @@ def write_outputs(scored_df: pd.DataFrame, config: AppConfig) -> None:
         alerts.to_json(alerts_dir / f"alerts-{batch_id}.jsonl", orient="records", lines=True)
 
     monitor = (
-        enriched.groupby(["state", "risk_band"], dropna=False)["fraud_probability"]
+        enriched.groupby(["merchantState", "risk_band"], dropna=False)["fraud_probability"]
         .agg(txn_count="size", avg_fraud_probability="mean")
         .reset_index()
     )
@@ -124,21 +134,26 @@ def main() -> None:
     threshold = float(config.streaming["fraud_probability_threshold"])
 
     LOGGER.info("Loading model from %s", model_path)
-    model = load_model(model_path)
+    artifact = load_artifact(model_path)
+    model = artifact.model
+    metadata = artifact.metadata
+    explainer = ExplainabilityService.from_metadata(model, metadata)
+    feature_pipeline = FeaturePipeline.from_metadata(metadata)
     for raw_batch in build_source_batches(config):
-        valid_batch = validate_transactions(sanitize_input_columns(raw_batch))
-        if valid_batch.empty:
+        features = feature_pipeline.transform(raw_batch)
+        if features.empty:
             LOGGER.warning("Skipping empty or invalid batch.")
             continue
-        features = add_derived_features(valid_batch)
-        scored = score_frame(model, features[FEATURE_COLUMNS], threshold=threshold)
-        overlapping_columns = [column for column in scored.columns if column in features]
-        raw_context = features.drop(columns=overlapping_columns)
-        scored = pd.concat(
-            [raw_context, scored],
-            axis=1,
+        if config.raw.get("feature_store", {}).get("enabled", False):
+            store = DuckDBFeatureStore(config.resolve_path(config.raw["feature_store"]["path"]))
+            store.append_features(features)
+        scored = score_frame(model, features, threshold=threshold, label_column="isFraud")
+        write_outputs(
+            scored,
+            config,
+            model_version=str(metadata.get("model_version", "unknown")),
+            explainer=explainer,
         )
-        write_outputs(scored, config)
 
 
 if __name__ == "__main__":

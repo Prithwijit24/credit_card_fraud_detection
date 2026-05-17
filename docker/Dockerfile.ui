@@ -1,0 +1,14 @@
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    FRAUD_API_URL=http://api:8000
+WORKDIR /app
+
+COPY pyproject.toml README.md /app/
+COPY src /app/src
+COPY scripts /app/scripts
+
+RUN pip install --no-cache-dir -e ".[ui]"
+
+CMD ["streamlit", "run", "scripts/run_ui.py", "--server.address=0.0.0.0", "--server.port=8501"]

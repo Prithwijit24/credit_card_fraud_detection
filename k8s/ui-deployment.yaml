@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-ui
+  namespace: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fraud-ui
+  template:
+    metadata:
+      labels:
+        app: fraud-ui
+    spec:
+      containers:
+        - name: ui
+          image: ghcr.io/OWNER/REPO/fraud-ui:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: fraud-config
+          ports:
+            - containerPort: 8501
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-ui
+  namespace: fraud-detection
+spec:
+  type: ClusterIP
+  selector:
+    app: fraud-ui
+  ports:
+    - port: 8501
+      targetPort: 8501
