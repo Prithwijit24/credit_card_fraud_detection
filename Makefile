@@ -26,22 +26,22 @@ test:
 	pytest
 
 train:
-	fraud train --config base
+	$(UV) run fraud train --config base
 
 features:
-	fraud train --config base
+	$(UV) run fraud train --config base
 
 stream:
-	fraud stream --config base
+	$(UV) run fraud stream --config base
 
 produce:
-	fraud produce --config base
+	$(UV) run fraud produce --config base
 
 api:
-	fraud api --config base --host 0.0.0.0 --port 8000
+	$(UV) run fraud api --config base --host 0.0.0.0 --port 8000
 
 ui:
-	streamlit run scripts/run_ui.py --server.port 8501
+	$(UV) run streamlit run scripts/run_ui.py --server.port 8501
 
 docker-up:
 	docker compose up --build
