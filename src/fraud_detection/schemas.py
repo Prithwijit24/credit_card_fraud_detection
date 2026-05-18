@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -130,3 +130,31 @@ def read_transactions(path: str | Path) -> pd.DataFrame:
     if source.suffix.lower() in {".jsonl", ".txt", ".ndjson"}:
         return read_transactions_jsonl(source)
     return read_transactions_csv(source)
+
+
+def iter_transactions_csv(path: str | Path, batch_size: int) -> Iterator[pd.DataFrame]:
+    for chunk in pd.read_csv(path, chunksize=batch_size):
+        yield coerce_transaction_schema(chunk)
+
+
+def iter_transactions_jsonl(path: str | Path, batch_size: int) -> Iterator[pd.DataFrame]:
+    records: list[dict[str, Any]] = []
+    with Path(path).open("r", encoding="utf-8") as handle:
+        for line in handle:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            records.append(json.loads(stripped))
+            if len(records) >= batch_size:
+                yield frame_from_records(records)
+                records = []
+    if records:
+        yield frame_from_records(records)
+
+
+def iter_transactions(path: str | Path, batch_size: int = 25_000) -> Iterator[pd.DataFrame]:
+    source = Path(path)
+    if source.suffix.lower() in {".jsonl", ".txt", ".ndjson"}:
+        yield from iter_transactions_jsonl(source, batch_size=batch_size)
+        return
+    yield from iter_transactions_csv(source, batch_size=batch_size)

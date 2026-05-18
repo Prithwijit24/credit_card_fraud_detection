@@ -28,5 +28,5 @@ class XGBoostModel(BaseFraudModel):
             objective="binary:logistic",
             eval_metric="aucpr",
             random_state=self.seed,
-            n_jobs=-1,
+            n_jobs=1,
         )

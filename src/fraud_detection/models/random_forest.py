@@ -19,5 +19,5 @@ class RandomForestModel(BaseFraudModel):
             min_samples_leaf=int(params.get("min_samples_leaf", 5)),
             class_weight="balanced_subsample",
             random_state=self.seed,
-            n_jobs=-1,
+            n_jobs=1,
         )

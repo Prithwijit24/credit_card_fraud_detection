@@ -22,5 +22,5 @@ class StackingEnsembleModel(BaseFraudModel):
                 ("lr", LogisticRegressionModel(seed=self.seed).build()),
             ],
             final_estimator=LogisticRegression(max_iter=1000, class_weight="balanced"),
-            n_jobs=-1,
+            n_jobs=1,
         )

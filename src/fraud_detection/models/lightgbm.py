@@ -22,5 +22,5 @@ class LightGBMModel(BaseFraudModel):
             max_depth=int(params["max_depth"]) if params.get("max_depth") is not None else -1,
             learning_rate=float(params.get("learning_rate", 0.05)),
             random_state=self.seed,
-            n_jobs=-1,
+            n_jobs=1,
         )

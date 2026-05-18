@@ -17,5 +17,5 @@ class IsolationForestModel(BaseFraudModel):
             n_estimators=int(params.get("num_trees", params.get("n_estimators", 200))),
             contamination=params.get("contamination", "auto"),
             random_state=self.seed,
-            n_jobs=-1,
+            n_jobs=1,
         )

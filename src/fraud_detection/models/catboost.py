@@ -27,5 +27,6 @@ class CatBoostModel(BaseFraudModel):
             depth=int(params.get("max_depth", params.get("depth", 8))),
             learning_rate=float(params.get("learning_rate", 0.05)),
             random_seed=self.seed,
+            thread_count=1,
             verbose=False,
         )

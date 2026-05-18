@@ -71,9 +71,9 @@ class StackedFraudModel:
 
 def _one_hot_encoder() -> OneHotEncoder:
     try:
-        return OneHotEncoder(handle_unknown="ignore", sparse_output=False, min_frequency=10)
+        return OneHotEncoder(handle_unknown="ignore", sparse_output=True, min_frequency=10)
     except TypeError:
-        return OneHotEncoder(handle_unknown="ignore", sparse=False)
+        return OneHotEncoder(handle_unknown="ignore", sparse=True)
 
 
 def build_preprocessor(extra_numeric_columns: list[str] | None = None) -> ColumnTransformer:
@@ -91,6 +91,7 @@ def build_preprocessor(extra_numeric_columns: list[str] | None = None) -> Column
             ("numeric", numeric_pipeline, numeric_columns),
         ],
         remainder="drop",
+        sparse_threshold=1.0,
     )
 
 
@@ -148,7 +149,7 @@ def build_cv_pipeline(
         param_grid=param_grid,
         scoring="average_precision",
         cv=TimeSeriesSplit(n_splits=3),
-        n_jobs=-1,
+        n_jobs=1,
         refit=True,
     )
 
