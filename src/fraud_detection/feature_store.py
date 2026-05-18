@@ -9,6 +9,7 @@ import pandas as pd
 from fraud_detection.features import FEATURE_COLUMNS
 
 TABLE_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+STORE_EXCLUDED_COLUMNS = {"class_weight"}
 
 
 class DuckDBFeatureStore:
@@ -29,11 +30,21 @@ class DuckDBFeatureStore:
             raise ValueError(f"Invalid feature-store table name: {table}")
         return table
 
+    def _payload(self, features: pd.DataFrame) -> pd.DataFrame:
+        return features.drop(columns=list(STORE_EXCLUDED_COLUMNS & set(features.columns)))
+
+    def _table_columns(self, connection: Any, table: str) -> list[str]:
+        rows = connection.execute(f"PRAGMA table_info('{table}')").fetchall()  # noqa: S608
+        return [str(row[1]) for row in rows]
+
+    def _quote_identifier(self, identifier: str) -> str:
+        return '"' + identifier.replace('"', '""') + '"'
+
     def write_features(self, features: pd.DataFrame, table: str = "transaction_features") -> int:
         if features.empty:
             return 0
         table = self._table(table)
-        payload = features.copy()
+        payload = self._payload(features)
         with self._connect() as connection:
             connection.register("feature_payload", payload)
             sql = f"CREATE OR REPLACE TABLE {table} AS SELECT * FROM feature_payload"  # noqa: S608
@@ -44,16 +55,28 @@ class DuckDBFeatureStore:
         if features.empty:
             return 0
         table = self._table(table)
-        payload = features.copy()
+        payload = self._payload(features)
         with self._connect() as connection:
-            connection.register("feature_payload", payload)
             exists = connection.execute(
                 "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?",
                 [table],
             ).fetchone()[0]
             if exists:
-                connection.execute(f"INSERT INTO {table} SELECT * FROM feature_payload")  # noqa: S608
+                table_columns = self._table_columns(connection, table)
+                missing_columns = set(table_columns) - set(payload.columns)
+                unexpected_missing = missing_columns - STORE_EXCLUDED_COLUMNS
+                if unexpected_missing:
+                    columns = ", ".join(sorted(unexpected_missing))
+                    message = f"Feature payload is missing columns required by {table}: {columns}"
+                    raise ValueError(message)
+                payload = payload.reindex(columns=table_columns)
+                connection.register("feature_payload", payload)
+                column_sql = ", ".join(self._quote_identifier(column) for column in table_columns)
+                connection.execute(
+                    f"INSERT INTO {table} ({column_sql}) SELECT {column_sql} FROM feature_payload"  # noqa: S608
+                )
             else:
+                connection.register("feature_payload", payload)
                 sql = f"CREATE TABLE {table} AS SELECT * FROM feature_payload"  # noqa: S608
                 connection.execute(sql)
         return len(payload)
