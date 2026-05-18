@@ -1,16 +1,22 @@
 PYTHON ?= python
-PIP ?= $(PYTHON) -m pip
+UV ?= uv
 
-.PHONY: install install-dev install-prod lint test train stream produce api ui docker-up k8s-apply
+.PHONY: install install-dev install-prod build clean lint test train features stream produce api ui docker-up docker-down k8s-apply
 
 install:
-	$(PIP) install -e .
+	$(UV) sync --active
 
 install-dev:
-	$(PIP) install -e ".[dev,stream,api,ui]"
+	$(UV) sync --active --extra dev --extra stream --extra api --extra ui
 
 install-prod:
-	$(PIP) install -e ".[prod]"
+	$(UV) sync --active --extra prod
+
+build:
+	$(UV) build
+
+clean:
+	rm -rf build dist *.egg-info .pytest_cache .mypy_cache __pycache__
 
 lint:
 	ruff check .
@@ -20,6 +26,9 @@ test:
 	pytest
 
 train:
+	fraud train --config base
+
+features:
 	fraud train --config base
 
 stream:
@@ -36,6 +45,9 @@ ui:
 
 docker-up:
 	docker compose up --build
+
+docker-down:
+	docker compose down
 
 k8s-apply:
 	kubectl apply -f k8s/
